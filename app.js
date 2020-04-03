@@ -44,7 +44,7 @@ app.use(function (req, res, next) {
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE');
 
     // Request headers you wish to allow
-    res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With,content-type');
+    res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With,content-type,authorization');
 
     // Set to true if you need the website to include cookies in the requests sent
     // to the API (e.g. in case you use sessions)
@@ -59,40 +59,130 @@ app.use(bodyParser.json()); // parse form data client
 app.use(express.static(path.join(__dirname, 'public'))); // configure express to use public folder
 app.use(fileUpload()); // configure fileupload
 
-
+let loggedIn_token = ''
 app.post('/login', (request, response) => {
     let { mobile, password } = request.body;
 
-    db.query('SELECT * FROM users', (err, res) => {
-        bcrypt.hash(password, saltRounds, function (err, hash) {
-            let userObject = {};
-            userObject = { ...res.find(item => item.mobile === mobile) };
+    db.query(`SELECT * FROM users WHERE mobile=${mobile}`, (err, res) => {
+        return new Promise((resolve, reject) => {
 
-            bcrypt.compare(password, userObject.password, function (_, result) {
 
-                if (!!userObject && Object.entries(userObject).length && result) {
-                    jwt.sign({
-                        exp: Math.floor(Date.now() / 1000) + (60 * 60),
-                        data: { ...userObject }
-                    }, 'privatekey');
 
-                    delete userObject.password;
-                    response.send(userObject)
+            if (res && res.length) {
 
-                }
 
-                else {
-                    response.send('username or password is invalid')
-                }
-            });
+                bcrypt.compare(password, res[0].password, function (_, result) {
+                    if (result) {
+                        loggedIn_token = jwt.sign({
+                            exp: Math.floor(Date.now() / 1000) + (60 * 60),
+                            data: { ...res[0] }
+                        }, 'privatekey');
+
+                        let {
+                            name,
+                            email,
+                            amount,
+                            mobile,
+                            score,
+                            avatar_path,
+                            national_code,
+                            last_name,
+                        } = res[0];
+
+                        let userObject = {
+                            name,
+                            email,
+                            amount,
+                            mobile,
+                            score,
+                            avatar_path,
+                            national_code,
+                            last_name,
+                            token: loggedIn_token
+                        }
+
+
+
+                        resolve(response.send(userObject));
+                    }
+
+                    else {
+                        reject(response.send('username or password is invalid'));
+                    }
+                })
+
+
+            }
+
+            else {
+                reject(response.send('username or password is invalid'));
+            }
         })
+
     })
 })
 
 app.get('/me', (request, response) => {
-    jwt.verify(request.token, 'privatekey', (err, authorizedData) => {
-        console.log('autor--->', authorizedData, 'erro-->>', err)
-    })
+    if (request.headers['authorization']) {
+        jwt.verify(loggedIn_token, 'privatekey', (err, authorizedData) => {
+            if (authorizedData) {
+                let {
+                    name,
+                    email,
+                    amount,
+                    mobile,
+                    score,
+                    avatar_path,
+                    national_code,
+                    last_name,
+                } = authorizedData.data;
+
+                let userObject = {
+                    name,
+                    email,
+                    amount,
+                    mobile,
+                    score,
+                    avatar_path,
+                    national_code,
+                    last_name,
+                    token: loggedIn_token
+                }
+
+                response.send({ ...userObject })
+            }
+            else {
+                response.send('not logged in')
+            }
+
+        })
+    }
+    else {
+        response.send('not logged in')
+    }
+})
+
+app.post('/signup', (request, response) => {
+    let { name, last_name, mobile, email, password } = request.body;
+    if (name && last_name && mobile && password) {
+        db.query(`SELECT * FROM users WHERE mobile=${mobile}`, (err, res) => {
+            if (!res.length) {
+                db.query(`INSERT INTO users(name,last_name,mobile,email,password) VALUES('','',${mobile},'','')`, (err, res) => {
+                    if (res)
+                        response.send(true)
+                    else {
+                        response.send('not signed up')
+                    }
+                })
+            }
+            else {
+                response.send('this mobile number exists')
+            }
+        })
+    }
+    else {
+        response.send('required fields are not sent')
+    }
 })
 // routes for the app
 /*
